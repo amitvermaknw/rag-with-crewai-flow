@@ -8,41 +8,41 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        CLIENT (Flutter/Web)                  │
+│                        CLIENT (Mobile Web)                  │
 └─────────────────────────┬───────────────────────────────────┘
                           │  POST /api/v1/search
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              Cloud Run — FastAPI + CrewAI Flow               │
+│              Cloud Run — FastAPI + CrewAI Flow              │
 │                                                             │
-│   ┌─────────────────────────────────────────────────────┐  │
-│   │                  ArticleFlow                         │  │
-│   │                                                     │  │
-│   │  @start → check_bigquery_cache                      │  │
-│   │      ↓                                              │  │
-│   │  @router → route_after_cache                        │  │
-│   │      ↙               ↘                              │  │
-│   │  cache_hit         cache_miss                       │  │
-│   │      ↓                 ↓                            │  │
-│   │  return_result    fetch_from_web (Agent)            │  │
-│   │                       ↓                            │  │
-│   │                  summarize (Agent)                  │  │
-│   │                       ↓                            │  │
-│   │                  generate_embedding                 │  │
-│   │                       ↓                            │  │
-│   │                  save_to_firebase                   │  │
-│   │                       ↓                            │  │
-│   │                  save_to_bigquery                   │  │
-│   │                       ↓                            │  │
-│   │                  return_result                      │  │
-│   └─────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────┐   │
+│   │                  ArticleFlow                        │   │
+│   │                                                     │   │
+│   │  @start → check_bigquery_cache                      │   │
+│   │      ↓                                              │   │
+│   │  @router → route_after_cache                        │   │ 
+│   │      ↙               ↘                              │   │
+│   │  cache_hit         cache_miss                       │   │
+│   │      ↓                 ↓                            │   │
+│   │  return_result    fetch_from_web (Agent)            │   │
+│   │                       ↓                             │   │
+│   │                  summarize (Agent)                  │   │
+│   │                       ↓                             │   │
+│   │                  generate_embedding                 │   │
+│   │                       ↓                             │   │
+│   │                  save_to_firebase                   │   │
+│   │                       ↓                             │   │
+│   │                  save_to_bigquery                   │   │
+│   │                       ↓                             │   │
+│   │                  return_result                      │   │
+│   └─────────────────────────────────────────────────────┘   │
 └──────────┬──────────────────────┬───────────────────────────┘
            │                      │
            ▼                      ▼
 ┌─────────────────┐    ┌─────────────────────────────────────┐
-│    Firebase      │    │              BigQuery                │
-│   (Firestore)    │    │                                     │
-│                 │    │  articles table:                     │
+│    Firebase     │    │              BigQuery               │
+│   (Firestore)   │    │                                     │
+│                 │    │  articles table:                    │
 │ - title         │    │  - title, summary, url              │
 │ - summary       │    │  - full_content                     │
 │ - url           │    │  - embedding (vector)               │
