@@ -1,17 +1,32 @@
-research_task:
+search_articles_task:
   description: >
-    Conduct a thorough research about {topic}
-    Make sure you find any interesting and relevant information given
-    the current year is {current_year}.
+    Search the web for articles related to: {query}            
+    Steps:
+    1. Create 2-3 effective search queries based on the topic
+    2. Search and collect top 2 most relevant article URLs
+    3. Verify each URL is accessible and relevant
+    Return a list of URLs with titles and brief descriptions.
   expected_output: >
-    A list with 10 bullet points of the most relevant information about {topic}
-  agent: researcher
+    A list of 2 relevant articles with:
+    - Title
+    - URL
+    - article details 
+  agent: web_searcher
 
-reporting_task:
+extract_content_task:
   description: >
-    Review the context you got and expand each topic into a full section for a report.
-    Make sure the report is detailed and contains any and all relevant information.
+    From the articles found, scrape and extract full content.
+    Steps:
+    1. Visit each article URL
+    2. Extract the main article text (ignore ads, nav, footer)
+    3. Write a 2-3 sentence summary for each article
+    4. Structure the output cleanly
+  
+    Query context: {query}
   expected_output: >
-    A fully fledged report with the main topics, each with a full section of information.
-    Formatted as markdown without '```'
-  agent: reporting_analyst
+    For each article provide:
+    - title
+    - url  
+    - full content (cleaned)
+    - summary (60-70 words)
+  agent: content_extractor

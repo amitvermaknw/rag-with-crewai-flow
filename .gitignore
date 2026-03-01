@@ -4,3 +4,4 @@ lib/
 .DS_Store
 .venv
 bigquery_creds.json
+firebase_creds.json

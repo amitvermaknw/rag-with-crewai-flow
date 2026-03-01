@@ -1,10 +1,13 @@
 #!/usr/bin/env python
-from random import randint
 from pydantic import BaseModel
-from crewai.flow import Flow, listen, start
+from crewai.flow import Flow, listen, start, router
+from rag_with_crewai_flow.crews.websearch_crew.websearch_crew import WebsearchCrew
+from rag_with_crewai_flow.crews.services.bigquery_service import BigQueryService
+from rag_with_crewai_flow.crews.core.generate_embedding import GenerateEmbedding
+from rag_with_crewai_flow.crews.summary_crew.summary_crew import SummaryCrew
 
-from rag_with_crewai_flow.crews.poem_crew.poem_crew import PoemCrew
 
+#Define flow state
 class ArticleState(BaseModel):
     query: str =""
     cache_hit: bool = False
@@ -13,77 +16,106 @@ class ArticleState(BaseModel):
     embedding: list = []
     articles: list = []
 
-
 class ArticleRagFlow(Flow[ArticleState]):
+    def __init__(self):
+        super().__init__()
+        self.bg_service = BigQueryService()
 
     @start()
-    def generate_sentence_count(self, crewai_trigger_payload: dict = None):
+    def check_vecor_db(self):
+        """
+        Hit to cached/vector DB for articles.
+        """
         print("Check article in vector db")
-        # result = 
+        self.bq_service.check_bigquery_cache(self.state)
+        
+    @router(check_vecor_db)
+    def route_after_cahec(self):
+        """
+        Check if vector db found article or not
+        """
+        if self.state.cache_hit:
+            return self.state.articles
+        return "not_found"
 
-        # Use trigger payload if available
-        if crewai_trigger_payload:
-            # Example: use trigger data to influence sentence count
-            self.state.sentence_count = crewai_trigger_payload.get('sentence_count', randint(1, 5))
-            print(f"Using trigger payload: {crewai_trigger_payload}")
-        else:
-            self.state.sentence_count = randint(1, 5)
+    @listen("not_found")
+    def fetch_from_web(self):
+        """
+        Fetch searched article from web using task and agent.
+        Summarized the article
+        """
+        print("Fetch query from web")
+        result = WebsearchCrew().crew().kickoff(
+            inputs={"query": self.state.query}
+        )  
+        self.state.raw_article = result
 
-    @listen(generate_sentence_count)
-    def generate_poem(self):
-        print("Generating poem")
-        result = (
-            PoemCrew()
-            .crew()
-            .kickoff(inputs={"sentence_count": self.state.sentence_count})
-        )
+    # @listen(fetch_from_web)
+    # def summarize_article(self):
+    #     """
+    #     Summaries the article
+    #     """
+    #     print("Summarize the articles")
+    #     result = SummaryCrew().crew().kickoff(
+    #         inputs = {"content": self.state.raw_article}
+    #     )
+    #     self.state.summary = result
 
-        print("Poem generated", result.raw)
-        self.state.poem = result.raw
+    @listen(fetch_from_web)
+    def generate_embedding(self):
+        self.state.embedding = GenerateEmbedding(self.state.raw_article)
 
-    @listen(generate_poem)
-    def save_poem(self):
-        print("Saving poem")
-        with open("poem.txt", "w") as f:
-            f.write(self.state.poem)
+    @listen(generate_embedding)
+    def save_data(self):
+        save_to_firebase({
+            "title": ..., "summary": self.state.summary
+        })
+        save_to_bigquery({
+            "content": self.state.raw_article,
+            "embedding": self.state.embedding
+        })
 
+    @listen("cache_hit")
+    @listen(save_data)
+    def return_result(self):
+        return self.state.articles
 
-def kickoff():
-    poem_flow = PoemFlow()
-    poem_flow.kickoff()
-
-
-def plot():
-    poem_flow = PoemFlow()
-    poem_flow.plot()
-
-
-def run_with_trigger():
-    """
-    Run the flow with trigger payload.
-    """
-    import json
-    import sys
-
-    # Get trigger payload from command line argument
-    if len(sys.argv) < 2:
-        raise Exception("No trigger payload provided. Please provide JSON payload as argument.")
-
-    try:
-        trigger_payload = json.loads(sys.argv[1])
-    except json.JSONDecodeError:
-        raise Exception("Invalid JSON payload provided as argument")
-
-    # Create flow and kickoff with trigger payload
-    # The @start() methods will automatically receive crewai_trigger_payload parameter
-    poem_flow = PoemFlow()
-
-    try:
-        result = poem_flow.kickoff({"crewai_trigger_payload": trigger_payload})
-        return result
-    except Exception as e:
-        raise Exception(f"An error occurred while running the flow with trigger: {e}")
+# def kickoff():
+#     poem_flow = WebsearchCrew()
+#     poem_flow.kickoff()
 
 
-if __name__ == "__main__":
-    kickoff()
+# def plot():
+#     poem_flow = WebsearchCrew()
+#     poem_flow.plot()
+
+
+# def run_with_trigger():
+#     """
+#     Run the flow with trigger payload.
+#     """
+#     import json
+#     import sys
+
+#     # Get trigger payload from command line argument
+#     if len(sys.argv) < 2:
+#         raise Exception("No trigger payload provided. Please provide JSON payload as argument.")
+
+#     try:
+#         trigger_payload = json.loads(sys.argv[1])
+#     except json.JSONDecodeError:
+#         raise Exception("Invalid JSON payload provided as argument")
+
+#     # Create flow and kickoff with trigger payload
+#     # The @start() methods will automatically receive crewai_trigger_payload parameter
+#     poem_flow = WebsearchCrew()
+
+#     try:
+#         result = poem_flow.kickoff({"crewai_trigger_payload": trigger_payload})
+#         return result
+#     except Exception as e:
+#         raise Exception(f"An error occurred while running the flow with trigger: {e}")
+
+
+# if __name__ == "__main__":
+#     kickoff()
