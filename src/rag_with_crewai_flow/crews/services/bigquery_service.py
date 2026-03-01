@@ -19,7 +19,7 @@ class BigQueryService:
         embedding_str = ", ".join(map(str, query_embedding))
 
         query = f"""
-            SELECT base.articleId, base.title, base.summary FROM VECTOR_SEARCH(
+            SELECT base.articleId, base.title, base.summary, base.article_url, base.urltoimage  FROM VECTOR_SEARCH(
                 TABLE `{settings.bigquery_project_id}.{settings.bigquery_dataset}.{settings.bigquery_table}`,
                 'embedding',
                 (SELECT [{embedding_str}] AS embedding),
@@ -52,3 +52,43 @@ class BigQueryService:
             print(f"BigQuery cache check failed: {e}")
             self.state.cache_hit = False
             self.state.articles = []
+
+
+    def save_article(self, article: dict):
+
+        text_for_embedding = " ".join(filter(None, [
+            article.get("title"),                              
+            article.get("summary", {}).get("summary"),         
+            article.get("content"),                        
+        ]))
+
+        rows = [
+            {
+                "articleId": article.get("articleId"),
+                "title": article.get("title"),
+                "description": article.get("content"),
+                "content": article.get("content"),
+                "author": article.get("author"),
+                "article_url": article.get("url"),
+                "urltoimage": article.get("image_url"),
+                "country": article.get("country"),
+                "publishedat": article.get("publishedAt"),
+
+                # Flatten source
+                "source_type": article.get("source", {}).get("name"),
+
+                # Flatten summary
+                "category": article.get("summary", {}).get("category"),
+                "summary": article.get("summary", {}).get("summary"),
+                "embedding": GenerateEmbedding(text_for_embedding)
+            }
+        ]
+        
+        errors = self.client.insert_rows_json(self.table_id, rows)
+        
+        if errors:
+            print(f"BigQuery insert errors: {errors}")
+            return{"code": 500, "status": "failed", "msg": f"BigQuery insert errors: {errors}"}
+        else:
+            print(f"Saved to BigQuery")
+            return{"code": 200, "status": "success", "msg": "Saved to Bigquery"}
