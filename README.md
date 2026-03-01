@@ -1,56 +1,247 @@
-# {{crew_name}} Crew
+# 🏗️ RAG Article App — Architecture & Workflow
 
-Welcome to the {{crew_name}} Crew project, powered by [crewAI](https://crewai.com). This template is designed to help you set up a multi-agent AI system with ease, leveraging the powerful and flexible framework provided by crewAI. Our goal is to enable your agents to collaborate effectively on complex tasks, maximizing their collective intelligence and capabilities.
+> End-to-end architecture for an AI-powered article search and summarization app using CrewAI Flow, Firebase, BigQuery, and Vertex AI.
 
-## Installation
+---
 
-Ensure you have Python >=3.10 <3.14 installed on your system. This project uses [UV](https://docs.astral.sh/uv/) for dependency management and package handling, offering a seamless setup and execution experience.
+## 📐 High-Level Architecture
 
-First, if you haven't already, install uv:
-
-```bash
-pip install uv
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        CLIENT (Flutter/Web)                  │
+└─────────────────────────┬───────────────────────────────────┘
+                          │  POST /api/v1/search
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Cloud Run — FastAPI + CrewAI Flow               │
+│                                                             │
+│   ┌─────────────────────────────────────────────────────┐  │
+│   │                  ArticleFlow                         │  │
+│   │                                                     │  │
+│   │  @start → check_bigquery_cache                      │  │
+│   │      ↓                                              │  │
+│   │  @router → route_after_cache                        │  │
+│   │      ↙               ↘                              │  │
+│   │  cache_hit         cache_miss                       │  │
+│   │      ↓                 ↓                            │  │
+│   │  return_result    fetch_from_web (Agent)            │  │
+│   │                       ↓                            │  │
+│   │                  summarize (Agent)                  │  │
+│   │                       ↓                            │  │
+│   │                  generate_embedding                 │  │
+│   │                       ↓                            │  │
+│   │                  save_to_firebase                   │  │
+│   │                       ↓                            │  │
+│   │                  save_to_bigquery                   │  │
+│   │                       ↓                            │  │
+│   │                  return_result                      │  │
+│   └─────────────────────────────────────────────────────┘  │
+└──────────┬──────────────────────┬───────────────────────────┘
+           │                      │
+           ▼                      ▼
+┌─────────────────┐    ┌─────────────────────────────────────┐
+│    Firebase      │    │              BigQuery                │
+│   (Firestore)    │    │                                     │
+│                 │    │  articles table:                     │
+│ - title         │    │  - title, summary, url              │
+│ - summary       │    │  - full_content                     │
+│ - url           │    │  - embedding (vector)               │
+│ - thumbnail     │    │  - fetched_at                       │
+│ - published_at  │    │                                     │
+│                 │    │  VECTOR_SEARCH() for RAG            │
+│ Used for:       │    │  Used for:                          │
+│ Feed/Browse UI  │    │  Semantic Search + RAG              │
+└─────────────────┘    └─────────────────────────────────────┘
 ```
 
-Next, navigate to your project directory and install the dependencies:
+---
 
-(Optional) Lock the dependencies and install them by using the CLI command:
-```bash
-crewai install
+## 🔄 Detailed Flow — User Search
+
+```
+User types query in app
+          │
+          ▼
+POST /api/v1/search {"query": "AI trends 2026"}
+          │
+          ▼
+┌─────────────────────────────┐
+│  ArticleFlow.kickoff_async  │
+│  inputs: {query: "..."}     │
+│  → maps to ArticleState     │
+└──────────────┬──────────────┘
+               │
+               ▼
+┌─────────────────────────────┐
+│  @start                     │
+│  check_bigquery_cache()     │
+│                             │
+│  VECTOR_SEARCH() in BQ      │
+│  with query embedding       │
+└──────────┬──────────────────┘
+           │
+           ▼
+┌─────────────────────────────┐
+│  @router                    │
+│  route_after_cache()        │
+└────────┬──────────┬─────────┘
+         │          │
+    cache_hit    cache_miss
+         │          │
+         ▼          ▼
+┌──────────┐  ┌─────────────────────────┐
+│ return   │  │  @listen("cache_miss")  │
+│ articles │  │  fetch_from_web()       │
+│ from BQ  │  │                         │
+└──────────┘  │  Web Search Agent       │
+              │  → SerperDev Tool       │
+              │  → Scrape Article       │
+              └───────────┬─────────────┘
+                          │
+                          ▼
+              ┌─────────────────────────┐
+              │  @listen(fetch_from_web)│
+              │  summarize_article()    │
+              │                         │
+              │  Summary Agent          │
+              │  → OpenAI LLM           │
+              │  → Generate summary     │
+              └───────────┬─────────────┘
+                          │
+                          ▼
+              ┌─────────────────────────┐
+              │  @listen(summarize)     │
+              │  generate_embedding()   │
+              │                         │
+              │  Vertex AI              │
+              │  text-embedding-005     │
+              │  → vector [0.1, 0.2...] │
+              └───────────┬─────────────┘
+                          │
+                          ▼
+              ┌─────────────────────────┐
+              │  @listen(embedding)     │
+              │  save_data()            │
+              │                         │
+              │  → Firebase (summary)   │
+              │  → BigQuery (full+emb)  │
+              └───────────┬─────────────┘
+                          │
+                          ▼
+              ┌─────────────────────────┐
+              │  @listen(save_data)     │
+              │  return_result()        │
+              │  → return to user       │
+              └─────────────────────────┘
 ```
 
-### Customizing
+---
 
-**Add your `OPENAI_API_KEY` into the `.env` file**
+## 📰 User Browse Flow (No Search)
 
-- Modify `src/rag_with_crewai_flow/config/agents.yaml` to define your agents
-- Modify `src/rag_with_crewai_flow/config/tasks.yaml` to define your tasks
-- Modify `src/rag_with_crewai_flow/crew.py` to add your own logic, tools and specific args
-- Modify `src/rag_with_crewai_flow/main.py` to add custom inputs for your agents and tasks
-
-## Running the Project
-
-To kickstart your flow and begin execution, run this from the root folder of your project:
-
-```bash
-crewai run
+```
+User opens app
+      │
+      ▼
+GET /api/v1/articles
+      │
+      ▼
+Read directly from Firebase (Firestore)
+      │
+      ▼
+Return [title, summary, thumbnail, url, published_at]
+      │
+      ▼
+Display article feed in UI
 ```
 
-This command initializes the rag-with-crewai-flow Flow as defined in your configuration.
+> [InBits] (https://www.inbits.co/) 
+<br/>
+> [GitHub Repo] (https://github.com/amitvermaknw/inbits)
 
-This example, unmodified, will run the create a `report.md` file with the output of a research on LLMs in the root folder.
+---
 
-## Understanding Your Crew
+## 🤖 CrewAI Agents
 
-The rag-with-crewai-flow Crew is composed of multiple AI agents, each with unique roles, goals, and tools. These agents collaborate on a series of tasks, defined in `config/tasks.yaml`, leveraging their collective skills to achieve complex objectives. The `config/agents.yaml` file outlines the capabilities and configurations of each agent in your crew.
+### Web Search Agent
+```
+Role    : Web Research Specialist
+Tools   : SerperDevTool, ScrapeWebsiteTool
+Goal    : Find and extract full article content from the web
+Trigger : cache_miss in flow
+```
 
-## Support
+### Summary Agent
+```
+Role    : Article Summarizer
+LLM     : OpenAI
+Goal    : Generate concise, readable article summary
+Trigger : After web search agent completes
+```
 
-For support, questions, or feedback regarding the {{crew_name}} Crew or crewAI.
+---
 
-- Visit our [documentation](https://docs.crewai.com)
-- Reach out to us through our [GitHub repository](https://github.com/joaomdmoura/crewai)
-- [Join our Discord](https://discord.com/invite/X4JWnZnxPb)
-- [Chat with our docs](https://chatg.pt/DWjSBZn)
+## 🗄️ Data Schema
 
-Let's create wonders together with the power and simplicity of crewAI.
+### Firebase (Firestore) — `articles` collection
+| Field | Type | Purpose |
+|---|---|---|
+| `id` | string | URL hash |
+| `title` | string | Article title |
+| `summary` | string | AI generated summary |
+| `url` | string | Source URL |
+| `thumbnail` | string | Image URL |
+| `published_at` | timestamp | Publish date |
+| `source` | string | web_search / manual |
+
+### BigQuery — `articles` table
+| Field | Type | Purpose |
+|---|---|---|
+| `id` | STRING | URL hash (matches Firebase) |
+| `title` | STRING | Article title |
+| `summary` | STRING | AI generated summary |
+| `url` | STRING | Source URL |
+| `full_content` | STRING | Complete article text |
+| `embedding` | ARRAY<FLOAT64> | Vector for semantic search |
+| `fetched_at` | TIMESTAMP | When fetched |
+| `source` | STRING | Origin of article |
+
+---
+
+## 💰 Cost Estimate (POC)
+
+| Service | Usage | Cost |
+|---|---|---|
+| Cloud Run | Low traffic POC | ~$0 (free tier) |
+| Firebase Firestore | Lightweight docs | ~$0 (free tier) |
+| BigQuery Storage | 100MB | ~$0 (free tier 10GB) |
+| BigQuery Queries | < 1TB/month | ~$0 (free tier) |
+| Vertex AI Embeddings | Per 1K chars | ~$0.0001 |
+| **Total POC** | | **~$0–2/month** |
+
+> ⚠️ Vertex AI Vector Search NOT used — BigQuery VECTOR_SEARCH() used instead for POC cost savings. Migrate to Vertex AI Vector Search only when production low-latency (<50ms) is needed.
+
+---
+
+## 🚀 Deployment
+
+```bash
+# Build and deploy to Cloud Run
+gcloud run deploy article-rag-app \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars GOOGLE_CLOUD_PROJECT=your-project-id
+```
+
+---
+
+## 🔮 Future: Production Migration
+
+```
+POC (Now)                    Production (Later)
+─────────────────────        ──────────────────────────
+BigQuery VECTOR_SEARCH()  →  Vertex AI Vector Search
+Single Cloud Run instance →  Cloud Run autoscaling
+Manual embedding batch    →  Eventarc trigger on new doc
+```

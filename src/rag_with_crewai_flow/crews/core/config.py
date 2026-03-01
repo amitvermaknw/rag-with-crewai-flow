@@ -4,6 +4,8 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 class Setting(BaseSetting):
+    openai_api_key: str
+    firebase_cred_path: str
     bigquery_cred_path: str
     bigquery_project_id: str
     bigquery_dataset: str
